@@ -1,0 +1,66 @@
+dns-results.json
+
+Python
+
+pycache/
+*.py[cod]
+*$py.class
+
+Virtual environments
+
+.venv/
+venv/
+env/
+ENV/
+
+Python packaging
+
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+Testing / coverage
+
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+IDEs
+
+.vscode/
+.idea/
+
+macOS
+
+.DS_Store
+
+Generated benchmark results
+
+dns-results.json
+*.json
+
+Local configuration
+
+.env
+.env.*
+!.env.example
+
+Logs
+
+*.log
+
+Temporary files
+
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+OS / editor files
+
+Thumbs.db
+desktop.ini

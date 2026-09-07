@@ -1,0 +1,28 @@
+# Epic / Fortnite
+epicgames.com
+www.epicgames.com
+account-public-service-prod03.ol.epicgames.com
+launcher-public-service-prod06.ol.epicgames.com
+
+# Ubisoft / Rainbow Six Siege
+ubisoft.com
+connect.ubisoft.com
+public-ubiservices.ubi.com
+
+# PlayStation Network
+playstation.com
+playstation.net
+
+# Xbox Network
+xbox.com
+www.xbox.com
+xboxlive.com
+www.xboxlive.com
+user.auth.xboxlive.com
+xsts.auth.xboxlive.com
+title.auth.xboxlive.com
+device.auth.xboxlive.com
+
+Google.com
+
+apple.com
