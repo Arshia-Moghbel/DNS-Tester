@@ -1,19 +1,17 @@
-dns-results.json
-
-Python
+# Python
 
 pycache/
 *.py[cod]
 *$py.class
 
-Virtual environments
+# Virtual environments
 
 .venv/
 venv/
 env/
 ENV/
 
-Python packaging
+# Python packaging
 
 *.egg
 *.egg-info/
@@ -21,38 +19,38 @@ dist/
 build/
 .eggs/
 
-Testing / coverage
+# Testing / coverage
 
 .pytest_cache/
 .coverage
 .coverage.*
 htmlcov/
 
-IDEs
+# IDEs
 
 .vscode/
 .idea/
 
-macOS
+# macOS
 
 .DS_Store
 
-Generated benchmark results
+# Generated benchmark results
 
 dns-results.json
 *.json
 
-Local configuration
+# Local configuration
 
 .env
 .env.*
 !.env.example
 
-Logs
+# Logs
 
 *.log
 
-Temporary files
+# Temporary files
 
 *.tmp
 *.temp
@@ -60,7 +58,7 @@ Temporary files
 *.swo
 *~
 
-OS / editor files
+# OS / editor files
 
 Thumbs.db
 desktop.ini

@@ -46,8 +46,8 @@ Installation
 
 1. Clone the repository
 
-git clone https://github.com/YOUR_USERNAME/dns-tester.git
-cd dns-tester
+git clone https://github.com/Arshia-Moghbel/DNS-Tester.git
+cd Dns-Tester
 
 2. Create a virtual environment
 
@@ -101,10 +101,10 @@ speedtest-cli
 
 Configuration
 
-The default configuration uses two files located next to DNS Tester.py:
+The default configuration uses two files located next to DNS-Tester.py:
 
-dns.txt
-domains.txt
+DNS.txt
+Domains.txt
 
 No DNS servers or domains are hard-coded into the application.
 
@@ -112,9 +112,7 @@ No DNS servers or domains are hard-coded into the application.
 
 DNS Configuration
 
-Create:
-
-dns.txt
+DNS.txt
 
 The file supports provider names followed by one or more IPv4 addresses.
 
@@ -123,12 +121,11 @@ Example:
 Cloudflare
 1.1.1.1
 1.0.0.1
+
+
 Google
 8.8.8.8
 8.8.4.4
-Quad9
-9.9.9.9
-149.112.112.112
 
 The application interprets this as:
 
@@ -152,7 +149,7 @@ Domain Configuration
 
 Create:
 
-domains.txt
+Domains.txt
 
 Put one domain per line:
 
@@ -175,9 +172,9 @@ ubisoft.com
 
 Usage
 
-With dns.txt and domains.txt in the same directory:
+With DNS.txt and Domains.txt in the same directory:
 
-python "DNS Tester.py"
+python "DNS-Tester.py"
 
 The program will automatically load both files.
 
@@ -196,7 +193,7 @@ System DNS  : NOT changed / NOT used
 
 DNS Testing
 
-For every DNS server, the application performs multiple DNS queries for every configured domain.
+For every DNS server, the application performs multiple DNS queries for every configured Domain.
 
 For example:
 
@@ -291,7 +288,7 @@ DNS servers are tested concurrently using Python’s asyncio.
 
 Example:
 
-python "DNS Tester.py" --concurrency 16
+python "DNS-Tester.py" --concurrency 16
 
 Default:
 
@@ -305,11 +302,11 @@ Command-Line Options
 
 Display help:
 
-python "DNS Tester.py" --help
+python "DNS-Tester.py" --help
 
 Number of tests
 
-python "DNS Tester.py" --tests 10
+python "DNS-Tester.py" --tests 10
 
 Default:
 
@@ -317,7 +314,7 @@ Default:
 
 DNS timeout
 
-python "DNS Tester.py" --timeout 3
+python "DNS-Tester.py" --timeout 3
 
 Default:
 
@@ -325,7 +322,7 @@ Default:
 
 Concurrency
 
-python "DNS Tester.py" --concurrency 16
+python "DNS-Tester.py" --concurrency 16
 
 Default:
 
@@ -333,19 +330,19 @@ Default:
 
 Custom DNS file
 
-python "DNS Tester.py" --dns-file my-dns.txt
+python "DNS-Tester.py" --dns-file my-dns.txt
 
 Custom domain file
 
-python "DNS Tester.py" --domain-file my-domains.txt
+python "DNS-Tester.py" --domain-file my-domains.txt
 
 Skip speed test
 
-python "DNS Tester.py" --no-speedtest
+python "DNS-Tester.py" --no-speedtest
 
 Custom JSON output
 
-python "DNS Tester.py" --output results.json
+python "DNS-Tester.py" --output results.json
 
 ⸻
 
@@ -355,13 +352,13 @@ Individual DNS servers can also be supplied through the CLI.
 
 Example:
 
-python "DNS Tester.py" \
-    --dns "Cloudflare=1.1.1.1" \
-    --dns "Google=8.8.8.8"
+python "DNS-Tester.py" \
+    --DNS "Cloudflare=1.1.1.1" \
+    --DNS "Google=8.8.8.8"
 
 Individual domains can also be supplied:
 
-python "DNS Tester.py" \
+python "DNS-Tester.py" \
     --domain apple.com \
     --domain github.com
 
@@ -371,7 +368,7 @@ JSON Output
 
 After every benchmark, the application saves the results to:
 
-dns-results.json
+DNS-results.json
 
 The JSON file contains:
 
@@ -405,13 +402,14 @@ Example structure:
 
 Project Structure
 
-dns-tester/
+DNS-Tester/
 │
-├── DNS Tester.py
-├── dns.txt
-├── domains.txt
-├── requirements.txt
+├── DNS-Tester.py
+├── DNS.txt
+├── Domains.txt
+├── Requirements.txt
 ├── README.md
+├── LICENSE
 ├── .gitignore
 │
 └── .venv/
