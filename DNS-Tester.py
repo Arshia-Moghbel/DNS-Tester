@@ -15,6 +15,7 @@ from pathlib import Path
 
 try:
     import dns.asyncresolver
+    import dns.exception
 except ImportError:
     print("dnspython is not installed.")
     print("Run: python -m pip install dnspython rich")
@@ -56,11 +57,12 @@ def parse_dns_arg(value: str) -> tuple[str, str]:
 
     return value, value
 
+
 def load_dns_file(path: str) -> list[tuple[str, str]]:
     """
     Load DNS servers from a file where each provider name
     is followed by one or more IP addresses.
-    Blank lines are ignored.
+    Blank lines and comments are ignored.
     """
 
     lines = [
@@ -98,79 +100,76 @@ def load_dns_file(path: str) -> list[tuple[str, str]]:
 
     return dns_servers
 
+
 def load_lines(path: str) -> list[str]:
     """
     Load non-empty, non-comment lines from a text file.
     """
     return [
         line.strip()
-        for line in Path(path).read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.strip().startswith("#")
+        for line in Path(path)
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+        and not line.strip().startswith("#")
     ]
 
-def parse_json_output(output: str) -> dict:
+
+def parse_json_output(text):
     """
-    Parse JSON output even if the CLI prints extra text
-    before or after the JSON object.
+    Safely extract JSON from CLI output.
+
+    Some CLI versions may print additional text before or
+    after the JSON object.
     """
 
-    output = output.strip()
+    if not text:
+        return None
 
-    if not output:
-        raise json.JSONDecodeError(
-            "Empty output",
-            output,
-            0,
-        )
+    text = text.strip()
 
-    # First try: output is pure JSON.
     try:
-        data = json.loads(output)
-
-        if isinstance(data, dict):
-            return data
-
+        return json.loads(text)
     except json.JSONDecodeError:
         pass
 
-    # Second try: find a valid JSON object anywhere
-    # inside the command output.
     decoder = json.JSONDecoder()
 
-    for index, character in enumerate(output):
+    for index, char in enumerate(text):
 
-        if character != "{":
+        if char != "{":
             continue
 
         try:
             data, _ = decoder.raw_decode(
-                output[index:]
+                text[index:]
             )
-
-            if isinstance(data, dict):
-                return data
+            return data
 
         except json.JSONDecodeError:
             continue
 
-    raise json.JSONDecodeError(
-        "Could not find valid JSON object in output",
-        output,
-        0,
-    )
+    return None
 
 
 def mean_or_none(values: list[float]):
     if not values:
         return None
 
-    return round(statistics.mean(values), 2)
+    return round(
+        statistics.mean(values),
+        2,
+    )
 
 
 def calc_jitter(values: list[float]):
     """
-    Average absolute difference between consecutive latency samples.
+    Average absolute difference between consecutive
+    successful latency samples.
+
+    Failed and timeout queries must never be included.
     """
+
     if len(values) < 2:
         return None
 
@@ -179,7 +178,10 @@ def calc_jitter(values: list[float]):
         for a, b in zip(values, values[1:])
     )
 
-    return round(jitter, 2)
+    return round(
+        jitter,
+        2,
+    )
 
 
 def dns_rank_key(item):
@@ -188,12 +190,21 @@ def dns_rank_key(item):
 
     1. Domain success rate
     2. Overall query success rate
-    3. Average latency
+    3. Average latency of successful queries
+    4. Lower jitter
+
+    Failed/timeout queries are never included in latency
+    or jitter calculations.
     """
+
+    domain_results = item.get(
+        "domain_results",
+        {},
+    )
 
     domain_rates = [
         value["success_rate"]
-        for value in item["domain_results"].values()
+        for value in domain_results.values()
     ]
 
     domain_success = (
@@ -202,17 +213,30 @@ def dns_rank_key(item):
         else 0
     )
 
-    query_success = item.get("query_success_rate") or 0
+    query_success = (
+        item.get("query_success_rate")
+        or 0
+    )
 
-    latency = item.get("average_latency_ms")
+    latency = item.get(
+        "average_latency_ms"
+    )
 
     if latency is None:
         latency = float("inf")
+
+    jitter = item.get(
+        "jitter_ms"
+    )
+
+    if jitter is None:
+        jitter = float("inf")
 
     return (
         -domain_success,
         -query_success,
         latency,
+        jitter,
     )
 
 
@@ -220,64 +244,49 @@ def dns_rank_key(item):
 # DIRECT DNS QUERY
 # ============================================================
 
-async def query_dns(
-    server: str,
-    domain: str,
-    timeout: float,
-) -> dict:
-    """
-    Query the specified DNS server directly.
-
-    IMPORTANT:
-    configure=False means dnspython does NOT read the
-    operating system DNS configuration.
-
-    resolver.nameservers = [server] forces the query
-    to the specified DNS server.
-    """
-
-    resolver = dns.asyncresolver.Resolver(
-        configure=False
-    )
-
+async def query_dns(server, domain, timeout):
+    resolver = dns.asyncresolver.Resolver(configure=False)
     resolver.nameservers = [server]
     resolver.timeout = timeout
     resolver.lifetime = timeout
 
-    started = asyncio.get_running_loop().time()
+    start = time.perf_counter()
 
     try:
-        answer = await resolver.resolve(
-            domain,
-            "A",
-        )
+        answer = await resolver.resolve(domain, "A")
+        elapsed = (time.perf_counter() - start) * 1000
 
-        elapsed = (
-            asyncio.get_running_loop().time() - started
-        ) * 1000
+        addresses = [str(r) for r in answer]
 
         return {
             "success": True,
-            "latency_ms": round(elapsed, 2),
-            "addresses": [
-                str(record)
-                for record in answer
-            ],
+            "latency_ms": elapsed,
+            "addresses": addresses,
             "error": None,
+            "timed_out": False,
         }
 
-    except Exception as exc:
-        elapsed = (
-            asyncio.get_running_loop().time() - started
-        ) * 1000
+    except dns.exception.Timeout as e:
+        elapsed = (time.perf_counter() - start) * 1000
 
         return {
             "success": False,
-            "latency_ms": round(elapsed, 2),
+            "latency_ms": elapsed,
             "addresses": [],
-            "error": str(exc),
+            "error": f"Timeout: {e}",
+            "timed_out": True,
         }
 
+    except Exception as e:
+        elapsed = (time.perf_counter() - start) * 1000
+
+        return {
+            "success": False,
+            "latency_ms": elapsed,
+            "addresses": [],
+            "error": str(e),
+            "timed_out": False,
+        }
 
 # ============================================================
 # TEST ONE DNS SERVER
@@ -291,17 +300,23 @@ async def test_dns_server(
     timeout,
     semaphore,
 ):
+
     async with semaphore:
 
-        all_query_latencies = []
+        successful_query_latencies = []
+
         all_query_successes = 0
+        all_query_failures = 0
+        timeout_count = 0
 
         domain_results = {}
 
         for domain in domains:
 
             successful_latencies = []
+
             last_addresses = []
+
             errors = []
 
             for _ in range(tests):
@@ -312,38 +327,55 @@ async def test_dns_server(
                     timeout,
                 )
 
-                all_query_latencies.append(
-                    result["latency_ms"]
-                )
-
                 if result["success"]:
 
                     all_query_successes += 1
 
-                    successful_latencies.append(
-                        result["latency_ms"]
+                    latency = result.get(
+                        "latency_ms"
                     )
+
+                    if latency is not None:
+
+                        successful_query_latencies.append(
+                            latency
+                        )
+
+                        successful_latencies.append(
+                            latency
+                        )
 
                     last_addresses = result[
                         "addresses"
                     ]
 
-                elif result["error"]:
+                else:
 
-                    errors.append(
-                        result["error"]
-                    )
+                    all_query_failures += 1
+
+                    if result.get("timed_out", False):
+
+                        timeout_count += 1
+
+                    if result["error"]:
+
+                        errors.append(
+                            result["error"]
+                        )
 
             domain_results[domain] = {
+
                 "success_rate": round(
                     len(successful_latencies)
                     / tests
                     * 100,
                     1,
                 ),
+
                 "average_latency_ms": mean_or_none(
                     successful_latencies
                 ),
+
                 "min_latency_ms": (
                     round(
                         min(successful_latencies),
@@ -352,6 +384,7 @@ async def test_dns_server(
                     if successful_latencies
                     else None
                 ),
+
                 "max_latency_ms": (
                     round(
                         max(successful_latencies),
@@ -360,52 +393,92 @@ async def test_dns_server(
                     if successful_latencies
                     else None
                 ),
+
+                "jitter_ms": calc_jitter(
+                    successful_latencies
+                ),
+
                 "addresses": last_addresses,
+
                 "errors": errors[:3],
             }
 
-        total_queries = len(domains) * tests
+        total_queries = (
+            len(domains)
+            * tests
+        )
+
 
         return {
+
             "name": name,
+
             "server": server,
 
-            "query_success_rate": round(
-                all_query_successes
-                / total_queries
-                * 100,
-                1,
-            )
-            if total_queries
-            else 0,
-
-            "average_latency_ms": mean_or_none(
-                all_query_latencies
+            "query_success_rate": (
+                round(
+                    all_query_successes
+                    / total_queries
+                    * 100,
+                    1,
+                )
+                if total_queries
+                else 0
             ),
+
+            "timeout_rate": (
+                round(
+                    timeout_count
+                    / total_queries
+                    * 100,
+                    1,
+                )
+                if total_queries
+                else 0
+            ),
+
+            "successful_queries":
+                all_query_successes,
+
+            "failed_queries":
+                all_query_failures,
+
+            "total_queries":
+                total_queries,
+
+            "average_latency_ms":
+                mean_or_none(
+                    successful_query_latencies
+                ),
 
             "min_latency_ms": (
                 round(
-                    min(all_query_latencies),
+                    min(
+                        successful_query_latencies
+                    ),
                     2,
                 )
-                if all_query_latencies
+                if successful_query_latencies
                 else None
             ),
 
             "max_latency_ms": (
                 round(
-                    max(all_query_latencies),
+                    max(
+                        successful_query_latencies
+                    ),
                     2,
                 )
-                if all_query_latencies
+                if successful_query_latencies
                 else None
             ),
 
             "jitter_ms": calc_jitter(
-                all_query_latencies
+                successful_query_latencies
             ),
 
-            "domain_results": domain_results,
+            "domain_results":
+                domain_results,
         }
 
 
@@ -420,11 +493,13 @@ async def run_dns_tests(
     timeout,
     concurrency,
 ):
+
     semaphore = asyncio.Semaphore(
         concurrency
     )
 
     tasks = [
+
         test_dns_server(
             name,
             server,
@@ -433,10 +508,14 @@ async def run_dns_tests(
             timeout,
             semaphore,
         )
-        for name, server in dns_servers
+
+        for name, server
+        in dns_servers
     ]
 
-    return await asyncio.gather(*tasks)
+    return await asyncio.gather(
+        *tasks
+    )
 
 
 # ============================================================
@@ -445,19 +524,13 @@ async def run_dns_tests(
 
 def ping_internet():
     """
-    Ping 1.1.1.1 to measure the current Internet
+    Ping 1.1.1.1 to measure current Internet
     connection latency.
 
     This is NOT a DNS test.
     """
 
     target = "1.1.1.1"
-
-    command = [
-        "ping",
-        "-c",
-        "5",
-    ]
 
     system = platform.system().lower()
 
@@ -474,7 +547,6 @@ def ping_internet():
 
     else:
 
-        # macOS / Linux
         command = [
             "ping",
             "-c",
@@ -496,14 +568,6 @@ def ping_internet():
             + completed.stderr
         )
 
-        # macOS / Linux:
-        #
-        # round-trip min/avg/max/stddev = 12.345/...
-        #
-        # Linux can also use:
-        #
-        # rtt min/avg/max/mdev = ...
-
         match = re.search(
             r"(?:round-trip|rtt).*?=\s*"
             r"([\d.]+)\s*/\s*"
@@ -522,25 +586,39 @@ def ping_internet():
             )
 
             return {
+
                 "target": target,
-                "success": completed.returncode == 0,
+
+                "success":
+                    completed.returncode == 0,
+
                 "min_ms": minimum,
+
                 "avg_ms": average,
+
                 "max_ms": maximum,
+
                 "stddev_ms": stddev,
             }
 
         return {
+
             "target": target,
+
             "success": False,
-            "error": "Could not parse ping result.",
+
+            "error":
+                "Could not parse ping result.",
         }
 
     except Exception as exc:
 
         return {
+
             "target": target,
+
             "success": False,
+
             "error": str(exc),
         }
 
@@ -551,189 +629,78 @@ def ping_internet():
 
 def speedtest_internet():
     """
-    Run an Internet speed test using an installed Speedtest CLI.
+    Run an Internet speed test using speedtest-cli.
 
-    The DNS benchmark itself does NOT use the system DNS.
-    This Internet speed test is a separate measurement of the
-    current Internet connection.
+    The Python speedtest-cli package normally exposes
+    the executable as `speedtest-cli`.
 
-    Supported executables:
-        - speedtest      (Ookla Speedtest CLI)
-        - speedtest-cli  (Python speedtest-cli)
+    JSON is attempted first.
+
+    If JSON cannot be parsed, --simple is used as
+    a fallback.
+
+    Duplicate DNS entries are not affected by this function.
     """
 
     executable = None
 
-    # Try Ookla first, then speedtest-cli.
-    for command_name in ("speedtest", "speedtest-cli"):
+    # IMPORTANT:
+    # Prefer speedtest-cli because the installed program
+    # in this project uses the speedtest-cli argument syntax.
 
-        found = shutil.which(command_name)
+    for command_name in (
+        "speedtest-cli",
+        "speedtest",
+    ):
+
+        found = shutil.which(
+            command_name
+        )
 
         if found:
+
             executable = found
+
             break
 
     if not executable:
 
         return {
+
             "available": False,
+
             "success": False,
+
             "error": (
-                "No Speedtest CLI found. "
-                "Install either Ookla Speedtest CLI "
-                "or speedtest-cli."
+                "No speedtest-cli executable found. "
+                "Install it with: "
+                "python -m pip install speedtest-cli"
             ),
         }
 
-    try:
+    def run_command(arguments):
 
-        # ====================================================
-        # OOKLA SPEEDTEST CLI
-        # ====================================================
+        return subprocess.run(
 
-        if (
-            executable.endswith("/speedtest")
-            or executable == "speedtest"
-        ):
-
-            completed = subprocess.run(
-                [
-                    executable,
-                    "--accept-license",
-                    "--accept-gdpr",
-                    "--format=json",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=180,
-            )
-
-            if completed.returncode != 0:
-
-                error_message = (
-                    completed.stderr.strip()
-                    or completed.stdout.strip()
-                    or "speedtest failed"
-                )
-
-                return {
-                    "available": True,
-                    "success": False,
-                    "executable": executable,
-                    "error": error_message,
-                }
-
-            # Ookla may print additional text around
-            # the JSON output, so use the robust parser.
-            data = parse_json_output(
-                completed.stdout
-            )
-
-            download_data = data.get(
-                "download",
-                {},
-            )
-
-            upload_data = data.get(
-                "upload",
-                {},
-            )
-
-            ping_data = data.get(
-                "ping",
-                {},
-            )
-
-            server_data = data.get(
-                "server",
-                {},
-            )
-
-            download_bps = download_data.get(
-                "bandwidth"
-            )
-
-            upload_bps = upload_data.get(
-                "bandwidth"
-            )
-
-            return {
-                "available": True,
-                "success": True,
-                "executable": executable,
-
-                "download_mbps": (
-                    round(
-                        download_bps
-                        * 8
-                        / 1_000_000,
-                        2,
-                    )
-                    if download_bps is not None
-                    else None
-                ),
-
-                "upload_mbps": (
-                    round(
-                        upload_bps
-                        * 8
-                        / 1_000_000,
-                        2,
-                    )
-                    if upload_bps is not None
-                    else None
-                ),
-
-                "ping_ms": ping_data.get(
-                    "latency"
-                ),
-
-                "server": server_data.get(
-                    "name"
-                ),
-
-                "server_location": server_data.get(
-                    "location"
-                ),
-
-                "isp": data.get(
-                    "isp"
-                ),
-            }
-
-        # ====================================================
-        # SPEEDTEST-CLI
-        # ====================================================
-
-        completed = subprocess.run(
             [
                 executable,
-                "--json",
+                *arguments,
             ],
+
             capture_output=True,
+
             text=True,
+
             timeout=180,
         )
 
-        if completed.returncode != 0:
+    def parse_speedtest_cli_json(data):
 
-            return {
-                "available": True,
-                "success": False,
-                "executable": executable,
-                "error": (
-                    completed.stderr.strip()
-                    or completed.stdout.strip()
-                    or "speedtest-cli failed"
-                ),
-            }
-
-        data = parse_json_output(
-            completed.stdout
-        )
-
-        # speedtest-cli returns download/upload
-        # directly in bits per second.
+        if not isinstance(
+            data,
+            dict,
+        ):
+            return None
 
         download_bps = data.get(
             "download"
@@ -743,106 +710,329 @@ def speedtest_internet():
             "upload"
         )
 
-        server_data = data.get(
-            "server",
-            {},
+        if not isinstance(
+            download_bps,
+            (int, float),
+        ):
+            return None
+
+        if not isinstance(
+            upload_bps,
+            (int, float),
+        ):
+            return None
+
+        server_data = (
+            data.get("server")
+            or {}
         )
 
-        client_data = data.get(
-            "client",
-            {},
+        client_data = (
+            data.get("client")
+            or {}
         )
 
         return {
-            "available": True,
-            "success": True,
-            "executable": executable,
 
-            "download_mbps": (
+            "available": True,
+
+            "success": True,
+
+            "executable":
+                executable,
+
+            "download_mbps":
                 round(
                     download_bps
                     / 1_000_000,
                     2,
-                )
-                if download_bps is not None
-                else None
-            ),
+                ),
 
-            "upload_mbps": (
+            "upload_mbps":
                 round(
                     upload_bps
                     / 1_000_000,
                     2,
-                )
-                if upload_bps is not None
-                else None
-            ),
+                ),
 
-            "ping_ms": data.get(
-                "ping"
-            ),
+            "ping_ms":
+                data.get("ping"),
 
-            "server": server_data.get(
-                "sponsor"
-            ),
+            "server":
+                (
+                    server_data.get(
+                        "sponsor"
+                    )
+                    or server_data.get(
+                        "name"
+                    )
+                ),
 
-            "server_location": server_data.get(
-                "name"
-            ),
+            "server_location":
+                server_data.get(
+                    "name"
+                ),
 
-            "isp": client_data.get(
-                "isp"
-            ),
+            "isp":
+                client_data.get(
+                    "isp"
+                ),
+
+            "public_ip":
+                client_data.get(
+                    "ip"
+                ),
+
+            "method":
+                "json",
         }
 
-    # ========================================================
-    # ERROR HANDLING
-    # ========================================================
+    try:
 
-    except json.JSONDecodeError:
+        # ====================================================
+        # FIRST ATTEMPT: JSON
+        # ====================================================
+
+        completed = run_command(
+            ["--json"]
+        )
+
+        stdout = (
+            completed.stdout
+            or ""
+        )
+
+        stderr = (
+            completed.stderr
+            or ""
+        )
+
+        data = parse_json_output(
+            stdout
+        )
+
+        if data is None:
+
+            data = parse_json_output(
+                stderr
+            )
+
+        if data is not None:
+
+            parsed = (
+                parse_speedtest_cli_json(
+                    data
+                )
+            )
+
+            if parsed is not None:
+
+                return parsed
+
+        # ====================================================
+        # SECOND ATTEMPT: SIMPLE
+        # ====================================================
+
+        simple = run_command(
+            ["--simple"]
+        )
+
+        simple_stdout = (
+            simple.stdout
+            or ""
+        )
+
+        simple_stderr = (
+            simple.stderr
+            or ""
+        )
+
+        ping_ms = None
+
+        download_mbps = None
+
+        upload_mbps = None
+
+        for line in simple_stdout.splitlines():
+
+            line = line.strip()
+
+            # Ping
+
+            match = re.match(
+                r"^Ping:\s*([\d.]+)\s*ms$",
+                line,
+                re.IGNORECASE,
+            )
+
+            if match:
+
+                ping_ms = float(
+                    match.group(1)
+                )
+
+                continue
+
+            # Download
+
+            match = re.match(
+                r"^Download:\s*([\d.]+)\s*Mbit/s$",
+                line,
+                re.IGNORECASE,
+            )
+
+            if match:
+
+                download_mbps = float(
+                    match.group(1)
+                )
+
+                continue
+
+            # Upload
+
+            match = re.match(
+                r"^Upload:\s*([\d.]+)\s*Mbit/s$",
+                line,
+                re.IGNORECASE,
+            )
+
+            if match:
+
+                upload_mbps = float(
+                    match.group(1)
+                )
+
+        if (
+
+            simple.returncode == 0
+
+            and download_mbps is not None
+
+            and upload_mbps is not None
+
+        ):
+
+            return {
+
+                "available": True,
+
+                "success": True,
+
+                "executable":
+                    executable,
+
+                "download_mbps":
+                    round(
+                        download_mbps,
+                        2,
+                    ),
+
+                "upload_mbps":
+                    round(
+                        upload_mbps,
+                        2,
+                    ),
+
+                "ping_ms":
+                    ping_ms,
+
+                "server":
+                    None,
+
+                "server_location":
+                    None,
+
+                "isp":
+                    None,
+
+                "public_ip":
+                    None,
+
+                "method":
+                    "simple",
+            }
+
+        diagnostic = (
+
+            simple_stderr.strip()
+
+            or simple_stdout.strip()
+
+            or stderr.strip()
+
+            or stdout.strip()
+
+            or (
+                "speedtest-cli returned "
+                "no usable result"
+            )
+        )
 
         return {
+
             "available": True,
+
             "success": False,
-            "executable": executable,
-            "error": (
-                "Could not parse Speedtest "
-                "JSON output."
-            ),
+
+            "executable":
+                executable,
+
+            "error":
+                "Could not obtain a valid speedtest result.",
+
+            "raw_output":
+                diagnostic[:1000],
+
+            "return_code":
+                simple.returncode,
         }
 
     except FileNotFoundError:
 
         return {
+
             "available": False,
+
             "success": False,
-            "executable": executable,
-            "error": (
-                "Speedtest executable "
-                "was not found."
-            ),
+
+            "executable":
+                executable,
+
+            "error":
+                "Speedtest executable was not found.",
         }
 
     except subprocess.TimeoutExpired:
 
         return {
+
             "available": True,
+
             "success": False,
-            "executable": executable,
-            "error": (
-                "Speedtest timed out "
-                "after 180 seconds."
-            ),
+
+            "executable":
+                executable,
+
+            "error":
+                "Speedtest timed out after 180 seconds.",
         }
 
     except Exception as exc:
 
         return {
+
             "available": True,
+
             "success": False,
-            "executable": executable,
-            "error": str(exc),
+
+            "executable":
+                executable,
+
+            "error":
+                str(exc),
         }
+
 
 # ============================================================
 # RICH TABLES
@@ -855,21 +1045,34 @@ def print_dns_table(results):
     )
 
     columns = [
+
         "#",
+
         "DNS",
+
         "Server",
+
         "Success",
+
+        "Timeout",
+
         "Avg",
+
         "Min",
+
         "Max",
+
         "Jitter",
+
         "Domains OK",
     ]
 
     for column in columns:
 
         table.add_column(
+
             column,
+
             justify=(
                 "right"
                 if column == "#"
@@ -892,8 +1095,11 @@ def print_dns_table(results):
         ]
 
         domains_ok = sum(
+
             result["success_rate"] >= 100
-            for result in domain_results.values()
+
+            for result
+            in domain_results.values()
         )
 
         avg = item[
@@ -913,13 +1119,20 @@ def print_dns_table(results):
         ]
 
         table.add_row(
+
             str(index),
 
             item["name"],
 
             item["server"],
 
-            f'{item["query_success_rate"]:.1f}%',
+            (
+                f'{item["query_success_rate"]:.1f}%'
+            ),
+
+            (
+                f'{item["timeout_rate"]:.1f}%'
+            ),
 
             (
                 f"{avg:.2f} ms"
@@ -948,7 +1161,9 @@ def print_dns_table(results):
             f"{domains_ok}/{len(domain_results)}",
         )
 
-    console.print(table)
+    console.print(
+        table
+    )
 
 
 def print_domain_table(
@@ -998,6 +1213,7 @@ def print_domain_table(
                 if latency is not None:
 
                     cells.append(
+
                         f"✓ {success_rate:.0f}% / "
                         f"{latency:.1f}ms"
                     )
@@ -1018,7 +1234,9 @@ def print_domain_table(
             *cells
         )
 
-    console.print(table)
+    console.print(
+        table
+    )
 
 
 def print_internet_results(
@@ -1038,23 +1256,27 @@ def print_internet_results(
         "Result"
     )
 
-    # ------------------------
-    # Ping
-    # ------------------------
+    # ========================================================
+    # PING
+    # ========================================================
 
     if ping_result.get(
         "success"
     ):
 
         table.add_row(
+
             "Ping",
+
             (
                 f'{ping_result["avg_ms"]:.2f} ms avg'
             ),
         )
 
         table.add_row(
+
             "Ping Range",
+
             (
                 f'{ping_result["min_ms"]:.2f} / '
                 f'{ping_result["max_ms"]:.2f} ms'
@@ -1062,7 +1284,9 @@ def print_internet_results(
         )
 
         table.add_row(
+
             "Ping Jitter",
+
             (
                 f'{ping_result["stddev_ms"]:.2f} ms'
             ),
@@ -1071,7 +1295,9 @@ def print_internet_results(
     else:
 
         table.add_row(
+
             "Ping",
+
             (
                 "Failed: "
                 + ping_result.get(
@@ -1081,9 +1307,9 @@ def print_internet_results(
             ),
         )
 
-    # ------------------------
-    # Speedtest
-    # ------------------------
+    # ========================================================
+    # SPEEDTEST
+    # ========================================================
 
     if speed_result.get(
         "success"
@@ -1100,14 +1326,18 @@ def print_internet_results(
         if download is not None:
 
             table.add_row(
+
                 "Download",
+
                 f"{download:.2f} Mbps",
             )
 
         if upload is not None:
 
             table.add_row(
+
                 "Upload",
+
                 f"{upload:.2f} Mbps",
             )
 
@@ -1118,7 +1348,9 @@ def print_internet_results(
         if ping is not None:
 
             table.add_row(
+
                 "Speedtest Ping",
+
                 f"{ping:.2f} ms",
             )
 
@@ -1127,9 +1359,13 @@ def print_internet_results(
         ):
 
             table.add_row(
+
                 "Speedtest Server",
+
                 str(
-                    speed_result["server"]
+                    speed_result[
+                        "server"
+                    ]
                 ),
             )
 
@@ -1138,7 +1374,9 @@ def print_internet_results(
         ):
 
             table.add_row(
+
                 "Server Location",
+
                 str(
                     speed_result[
                         "server_location"
@@ -1151,23 +1389,65 @@ def print_internet_results(
         ):
 
             table.add_row(
+
                 "ISP",
+
                 str(
-                    speed_result["isp"]
+                    speed_result[
+                        "isp"
+                    ]
+                ),
+            )
+
+        if speed_result.get(
+            "public_ip"
+        ):
+
+            table.add_row(
+
+                "Public IP",
+
+                str(
+                    speed_result[
+                        "public_ip"
+                    ]
                 ),
             )
 
     else:
 
         table.add_row(
+
             "Speedtest",
+
             speed_result.get(
+
                 "error",
-                "Unavailable",
+
+                "Unknown error",
             ),
         )
 
-    console.print(table)
+        raw_output = speed_result.get(
+            "raw_output"
+        )
+
+        if raw_output:
+
+            debug_output = " ".join(
+                raw_output.split()
+            )
+
+            table.add_row(
+
+                "Speedtest Debug",
+
+                debug_output[:300],
+            )
+
+    console.print(
+        table
+    )
 
 
 # ============================================================
@@ -1177,89 +1457,127 @@ def print_internet_results(
 def build_parser():
 
     parser = argparse.ArgumentParser(
+
         description=(
+
             "Test DNS servers directly without "
             "changing or using the system DNS configuration."
         )
     )
 
     parser.add_argument(
+
         "--dns",
+
         action="append",
+
         help=(
+
             'DNS server in the form "Name=IP". '
+
             "Can be repeated."
         ),
     )
 
     parser.add_argument(
+
         "--dns-file",
+
         help=(
-            "Text file containing DNS servers, "
-            "one per line."
+
+            "Text file containing DNS servers."
         ),
     )
 
     parser.add_argument(
+
         "--domain",
+
         action="append",
+
         help=(
+
             "Domain to test. "
             "Can be repeated."
         ),
     )
 
     parser.add_argument(
+
         "--domain-file",
+
         help=(
-            "Text file containing domains, "
-            "one per line."
+
+            "Text file containing domains."
         ),
     )
 
     parser.add_argument(
+
         "--tests",
+
         type=int,
+
         default=5,
+
         help=(
+
             "Number of repetitions per domain. "
             "Default: 5"
         ),
     )
 
     parser.add_argument(
+
         "--timeout",
+
         type=float,
+
         default=2.0,
+
         help=(
+
             "DNS timeout in seconds. "
             "Default: 2"
         ),
     )
 
     parser.add_argument(
+
         "--concurrency",
+
         type=int,
+
         default=8,
+
         help=(
+
             "Maximum number of DNS servers tested "
             "concurrently. Default: 8"
         ),
     )
 
     parser.add_argument(
+
         "--output",
+
         default="DNS-Results.json",
+
         help=(
+
             "JSON output filename. "
             "Default: DNS-Results.json"
         ),
     )
 
     parser.add_argument(
+
         "--no-speedtest",
+
         action="store_true",
+
         help=(
+
             "Skip download/upload speed test."
         ),
     )
@@ -1272,14 +1590,20 @@ def build_parser():
 # ============================================================
 
 def main():
+        
+    overall_start = time.perf_counter()
+    start_datetime = datetime.now().astimezone()
+
+    print()
+    print(f"Started : {start_datetime.strftime('%Y-%m-%d %H:%M:%S %Z')}")
 
     parser = build_parser()
 
     args = parser.parse_args()
 
-    # ------------------------
-    # Validate arguments
-    # ------------------------
+    # ========================================================
+    # VALIDATE ARGUMENTS
+    # ========================================================
 
     if args.tests < 1:
 
@@ -1299,20 +1623,27 @@ def main():
             "--concurrency must be >= 1"
         )
 
-    # ------------------------
-    # Load DNS servers
-    # ------------------------
+    # ========================================================
+    # LOAD DNS SERVERS
+    # ========================================================
 
     dns_servers = []
-    script_dir = Path(__file__).resolve().parent
+
+    script_dir = (
+        Path(__file__)
+        .resolve()
+        .parent
+    )
 
     default_dns_file = (
-        script_dir / "DNS.txt"
-        )
+        script_dir
+        / "DNS.txt"
+    )
 
     default_domains_file = (
-        script_dir / "Domains.txt"
-        )
+        script_dir
+        / "Domains.txt"
+    )
 
     if args.dns:
 
@@ -1320,12 +1651,17 @@ def main():
 
             try:
 
-                name, address = parse_dns_arg(
-                    entry
+                name, address = (
+                    parse_dns_arg(
+                        entry
+                    )
                 )
 
                 dns_servers.append(
-                    (name, address)
+                    (
+                        name,
+                        address,
+                    )
                 )
 
             except ValueError as exc:
@@ -1339,14 +1675,19 @@ def main():
         try:
 
             dns_servers.extend(
+
                 load_dns_file(
                     args.dns_file
                 )
             )
 
-        except (OSError, ValueError) as exc:
+        except (
+            OSError,
+            ValueError,
+        ) as exc:
 
             parser.error(
+
                 f"Could not read DNS file: {exc}"
             )
 
@@ -1355,28 +1696,38 @@ def main():
         if not default_dns_file.exists():
 
             parser.error(
+
                 "No DNS servers were provided. "
+
                 f"Create '{default_dns_file}' "
+
                 "and put your DNS servers in it."
             )
 
         try:
 
             dns_servers.extend(
+
                 load_dns_file(
-                    str(default_dns_file)
+                    str(
+                        default_dns_file
+                    )
                 )
             )
 
-        except (OSError, ValueError) as exc:
+        except (
+            OSError,
+            ValueError,
+        ) as exc:
 
             parser.error(
+
                 f"Could not read DNS file: {exc}"
             )
 
-    # ------------------------
-    # Load domains
-    # ------------------------
+    # ========================================================
+    # LOAD DOMAINS
+    # ========================================================
 
     domains = []
 
@@ -1391,6 +1742,7 @@ def main():
         try:
 
             domains.extend(
+
                 load_lines(
                     args.domain_file
                 )
@@ -1399,6 +1751,7 @@ def main():
         except OSError as exc:
 
             parser.error(
+
                 f"Could not read domain file: {exc}"
             )
 
@@ -1407,55 +1760,62 @@ def main():
         if not default_domains_file.exists():
 
             parser.error(
+
                 "No domains were provided. "
+
                 f"Create '{default_domains_file}' "
+
                 "and put your domains in it."
             )
 
         try:
 
             domains.extend(
+
                 load_lines(
-                    str(default_domains_file)
+                    str(
+                        default_domains_file
+                    )
                 )
             )
 
         except OSError as exc:
 
             parser.error(
+
                 f"Could not read domain file: {exc}"
             )
 
-    # ------------------------
-    # Deduplicate DNS servers
-    # ------------------------
+    # ========================================================
+    # DNS DUPLICATES
+    # ========================================================
+    #
+    # IMPORTANT:
+    # DNS duplicates are intentionally preserved.
+    #
+    # The original implementation deduplicated DNS entries.
+    # That behavior is removed so duplicate entries in DNS.txt
+    # remain separate test rows.
+    #
+    # ========================================================
 
-    unique_dns = []
+    unique_dns = [
 
-    seen_dns = set()
-
-    for name, address in dns_servers:
-
-        name = name.strip()
-
-        address = address.strip()
-
-        key = (
-            name.lower(),
-            address,
+        (
+            name.strip(),
+            address.strip(),
         )
 
-        if key not in seen_dns:
+        for name, address
+        in dns_servers
 
-            seen_dns.add(key)
+        if name.strip()
+        and address.strip()
+    ]
 
-            unique_dns.append(
-                (name, address)
-            )
-
-    # ------------------------
-    # Deduplicate domains
-    # ------------------------
+    # ========================================================
+    # DEDUPLICATE DOMAINS
+    # ========================================================
 
     unique_domains = []
 
@@ -1464,6 +1824,7 @@ def main():
     for domain in domains:
 
         domain = (
+
             domain
             .strip()
             .rstrip(".")
@@ -1471,8 +1832,12 @@ def main():
         )
 
         if (
+
             domain
-            and domain not in seen_domains
+
+            and domain
+            not in seen_domains
+
         ):
 
             seen_domains.add(
@@ -1486,12 +1851,14 @@ def main():
     if not unique_domains:
 
         parser.error(
+
             "No valid domains were provided."
         )
 
     if not unique_dns:
 
         parser.error(
+
             "No valid DNS servers were provided."
         )
 
@@ -1510,27 +1877,39 @@ def main():
     )
 
     console.print(
-        f"DNS servers : {len(unique_dns)}"
+
+        f"DNS servers : "
+        f"{len(unique_dns)}"
     )
 
     console.print(
-        f"Domains     : {len(unique_domains)}"
+
+        f"Domains     : "
+        f"{len(unique_domains)}"
     )
 
     console.print(
-        f"Tests/domain: {args.tests}"
+
+        f"Tests/domain: "
+        f"{args.tests}"
     )
 
     console.print(
-        f"Timeout     : {args.timeout:.2f}s"
+
+        f"Timeout     : "
+        f"{args.timeout:.2f}s"
     )
 
     console.print(
-        f"Concurrency : {args.concurrency}"
+
+        f"Concurrency : "
+        f"{args.concurrency}"
     )
 
     console.print(
-        "System DNS  : NOT changed / NOT used"
+
+        "System DNS  : "
+        "NOT changed / NOT used"
     )
 
     console.print()
@@ -1540,19 +1919,24 @@ def main():
     # ========================================================
 
     console.print(
+
         "[bold]Testing Internet connection...[/bold]"
     )
 
-    internet_ping = ping_internet()
+    internet_ping = (
+        ping_internet()
+    )
 
     if args.no_speedtest:
 
         speedtest_result = {
+
             "available": False,
+
             "success": False,
-            "error": (
-                "Skipped by --no-speedtest"
-            ),
+
+            "error":
+                "Skipped by --no-speedtest",
         }
 
     else:
@@ -1573,16 +1957,22 @@ def main():
         "Testing DNS servers..."
     )
 
-    start_time = time.perf_counter()
+    dns_start = time.perf_counter()
 
     try:
 
         results = asyncio.run(
+
             run_dns_tests(
+
                 unique_dns,
+
                 unique_domains,
+
                 args.tests,
+
                 args.timeout,
+
                 args.concurrency,
             )
         )
@@ -1595,9 +1985,9 @@ def main():
 
         return
 
-    elapsed = (
+    dns_elapsed = (
         time.perf_counter()
-        - start_time
+        - dns_start
     )
 
     results.sort(
@@ -1632,54 +2022,173 @@ def main():
     # JSON OUTPUT
     # ========================================================
 
+    end_datetime = datetime.now().astimezone()
+
+    total_elapsed = (
+
+        time.perf_counter()
+
+        - overall_start
+
+    )
+
     output = {
-        "timestamp_utc": (
+
+        "timestamp_utc":
             datetime.now(
                 timezone.utc
-            ).isoformat()
-        ),
+            ).isoformat(),
 
-        "duration_seconds": round(
-            elapsed,
-            2,
-        ),
+        "run": {
 
-        "tests_per_domain": (
-            args.tests
-        ),
+            "started_local":
+                start_datetime.isoformat(),
 
-        "timeout_seconds": (
-            args.timeout
-        ),
+            "finished_local":
+                end_datetime.isoformat(),
 
-        "concurrency": (
-            args.concurrency
-        ),
+            "dns_testing_seconds":
+                round(
+                    dns_elapsed,
+                    2,
+                ),
 
-        "system_dns_changed": False,
+            "total_seconds":
+                round(
+                    total_elapsed,
+                    2,
+                ),
+        },
 
-        "system_dns_used_for_dns_tests": False,
+        "duration_seconds":
+            round(
+                total_elapsed,
+                2,
+            ),
 
-        "dns_servers": [
+        "settings": {
+
+            "dns_servers_tested":
+                len(unique_dns),
+
+            "domains_tested":
+                len(unique_domains),
+
+            "tests_per_domain":
+                args.tests,
+
+            "timeout_seconds":
+                args.timeout,
+
+            "concurrency":
+                args.concurrency,
+        },
+
+        "system_dns_changed":
+            False,
+
+        "system_dns_used_for_dns_tests":
+            False,
+
+        "dns_results": [
+
             {
-                "name": name,
-                "server": server,
+
+                "rank":
+                    index,
+
+                "dns":
+                    item["name"],
+
+                "server":
+                    item["server"],
+
+                "success_rate":
+                    item[
+                        "query_success_rate"
+                    ],
+
+                "timeout_rate":
+                    item[
+                        "timeout_rate"
+                    ],
+
+                "successful_queries":
+                    item[
+                        "successful_queries"
+                    ],
+
+                "failed_queries":
+                    item[
+                        "failed_queries"
+                    ],
+
+                "total_queries":
+                    item[
+                        "total_queries"
+                    ],
+
+                "average_latency_ms":
+                    item[
+                        "average_latency_ms"
+                    ],
+
+                "min_latency_ms":
+                    item[
+                        "min_latency_ms"
+                    ],
+
+                "max_latency_ms":
+                    item[
+                        "max_latency_ms"
+                    ],
+
+                "jitter_ms":
+                    item[
+                        "jitter_ms"
+                    ],
+
+                "domains_ok":
+                    sum(
+
+                        result[
+                            "success_rate"
+                        ] >= 100
+
+                        for result
+                        in item[
+                            "domain_results"
+                        ].values()
+                    ),
+
+                "domains_total":
+                    len(
+                        item[
+                            "domain_results"
+                        ]
+                    ),
+
+                "domain_results":
+                    item[
+                        "domain_results"
+                    ],
             }
-            for name, server
-            in unique_dns
+
+            for index, item
+            in enumerate(
+                results,
+                1,
+            )
         ],
 
-        "domains": unique_domains,
+        "internet": {
 
-        "dns_results": results,
+            "ping":
+                internet_ping,
 
-        "internet_ping": (
-            internet_ping
-        ),
-
-        "internet_speedtest": (
-            speedtest_result
-        ),
+            "speedtest":
+                speedtest_result,
+        },
     }
 
     # ========================================================
@@ -1689,31 +2198,62 @@ def main():
     try:
 
         output_path = (
-            Path(args.output)
+            Path(
+                args.output
+            )
             .expanduser()
         )
 
         output_path.write_text(
+
             json.dumps(
+
                 output,
+
                 ensure_ascii=False,
+
                 indent=2,
             ),
+
             encoding="utf-8",
         )
 
         console.print()
 
         console.print(
-            f"[bold]JSON saved to:[/bold] "
+
+            "[bold]JSON saved to:[/bold] "
             f"{output_path}"
         )
 
     except OSError as exc:
 
         console.print(
-            f"\nWarning: could not save JSON file: {exc}"
+
+            "\nWarning: "
+            "could not save JSON file: "
+            f"{exc}"
         )
+
+
+    end_datetime = datetime.now().astimezone()
+    total_elapsed = time.perf_counter() - overall_start
+
+    print()
+    print("=" * 70)
+    print("Run Summary")
+    print("=" * 70)
+    print(
+        f"Started      : "
+        f"{start_datetime.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+    )
+    print(
+        f"Finished     : "
+        f"{end_datetime.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+    )
+    print(f"DNS testing  : {dns_elapsed:.2f} seconds")
+    print(f"Total time   : {total_elapsed:.2f} seconds")
+    print("=" * 70)
 
 
 # ============================================================
@@ -1735,7 +2275,9 @@ if __name__ == "__main__":
     except Exception as exc:
 
         print(
+
             f"\nUnexpected error: {exc}",
+
             file=sys.stderr,
         )
 
