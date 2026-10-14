@@ -38,7 +38,7 @@ htmlcov/
 
 # Generated benchmark results
 
-dns-results.json
+DNS-Results.json
 *.json
 
 # Local configuration

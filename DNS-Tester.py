@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import ipaddress
 import json
 import platform
 import re
@@ -37,6 +38,13 @@ console = Console()
 # HELPERS
 # ============================================================
 
+def parse_dns_address(value: str) -> str:
+    """Validate and normalize an IPv4 or IPv6 DNS server address."""
+    try:
+        return str(ipaddress.ip_address(value.strip()))
+    except ValueError as exc:
+        raise ValueError(f"Invalid DNS server address: {value}") from exc
+
 def parse_dns_arg(value: str) -> tuple[str, str]:
     """
     Accept:
@@ -53,9 +61,10 @@ def parse_dns_arg(value: str) -> tuple[str, str]:
         if not ip:
             raise ValueError(f"Invalid DNS entry: {value}")
 
-        return (name or ip), ip
+        return (name or ip), parse_dns_address(ip)
 
-    return value, value
+    address = parse_dns_address(value)
+    return address, address
 
 
 def load_dns_file(path: str) -> list[tuple[str, str]]:
@@ -77,26 +86,24 @@ def load_dns_file(path: str) -> list[tuple[str, str]]:
     dns_servers = []
     current_name = None
 
-    ip_pattern = re.compile(
-        r"^(?:\d{1,3}\.){3}\d{1,3}$"
-    )
-
     for line in lines:
-
-        if ip_pattern.match(line):
-
+        try:
+            address = parse_dns_address(line)
+        except ValueError:
+            # A value made solely of address characters is almost certainly a
+            # mistyped address, not a provider name.  Report it early.
+            if re.fullmatch(r"[0-9A-Fa-f:.]+", line):
+                raise ValueError(f"Invalid DNS server address: {line}")
+            current_name = line
+        else:
             if current_name is None:
                 raise ValueError(
                     f"DNS IP found before a provider name: {line}"
                 )
 
             dns_servers.append(
-                (current_name, line)
+                (current_name, address)
             )
-
-        else:
-
-            current_name = line
 
     return dns_servers
 
@@ -601,6 +608,39 @@ def ping_internet():
                 "stddev_ms": stddev,
             }
 
+        # Windows does not print a Unix-style rtt summary. Its summary has no
+        # standard deviation, so leave it unavailable instead of fabricating a
+        # jitter value.
+        match = re.search(
+            r"Minimum\s*=\s*(\d+)ms,\s*"
+            r"Maximum\s*=\s*(\d+)ms,\s*"
+            r"Average\s*=\s*(\d+)ms",
+            output,
+            re.IGNORECASE,
+        )
+
+        if match:
+
+            minimum, maximum, average = map(
+                float,
+                match.groups(),
+            )
+
+            return {
+
+                "target": target,
+
+                "success": completed.returncode == 0,
+
+                "min_ms": minimum,
+
+                "avg_ms": average,
+
+                "max_ms": maximum,
+
+                "stddev_ms": None,
+            }
+
         return {
 
             "target": target,
@@ -694,7 +734,9 @@ def speedtest_internet():
             timeout=180,
         )
 
-    def parse_speedtest_cli_json(data):
+    is_ookla_cli = Path(executable).name.lower() == "speedtest"
+
+    def parse_speedtest_json(data):
 
         if not isinstance(
             data,
@@ -702,24 +744,24 @@ def speedtest_internet():
         ):
             return None
 
-        download_bps = data.get(
-            "download"
-        )
+        download = data.get("download")
+        upload = data.get("upload")
 
-        upload_bps = data.get(
-            "upload"
-        )
+        # speedtest-cli reports bits/second as numbers, while Ookla's
+        # `speedtest --format=json` reports bytes/second under bandwidth.
+        if isinstance(download, (int, float)) and isinstance(upload, (int, float)):
+            download_mbps = download / 1_000_000
+            upload_mbps = upload / 1_000_000
+        elif isinstance(download, dict) and isinstance(upload, dict):
+            download_bandwidth = download.get("bandwidth")
+            upload_bandwidth = upload.get("bandwidth")
 
-        if not isinstance(
-            download_bps,
-            (int, float),
-        ):
-            return None
+            if not isinstance(download_bandwidth, (int, float)) or not isinstance(upload_bandwidth, (int, float)):
+                return None
 
-        if not isinstance(
-            upload_bps,
-            (int, float),
-        ):
+            download_mbps = download_bandwidth * 8 / 1_000_000
+            upload_mbps = upload_bandwidth * 8 / 1_000_000
+        else:
             return None
 
         server_data = (
@@ -730,6 +772,18 @@ def speedtest_internet():
         client_data = (
             data.get("client")
             or {}
+        )
+
+        interface_data = (
+            data.get("interface")
+            or {}
+        )
+
+        ping_data = data.get("ping")
+        ping_ms = (
+            ping_data.get("latency")
+            if isinstance(ping_data, dict)
+            else ping_data
         )
 
         return {
@@ -743,20 +797,18 @@ def speedtest_internet():
 
             "download_mbps":
                 round(
-                    download_bps
-                    / 1_000_000,
+                    download_mbps,
                     2,
                 ),
 
             "upload_mbps":
                 round(
-                    upload_bps
-                    / 1_000_000,
+                    upload_mbps,
                     2,
                 ),
 
             "ping_ms":
-                data.get("ping"),
+                ping_ms,
 
             "server":
                 (
@@ -769,18 +821,18 @@ def speedtest_internet():
                 ),
 
             "server_location":
-                server_data.get(
-                    "name"
-                ),
+                server_data.get("location"),
 
             "isp":
-                client_data.get(
-                    "isp"
+                (
+                    client_data.get("isp")
+                    or data.get("isp")
                 ),
 
             "public_ip":
-                client_data.get(
-                    "ip"
+                (
+                    client_data.get("ip")
+                    or interface_data.get("externalIp")
                 ),
 
             "method":
@@ -794,7 +846,9 @@ def speedtest_internet():
         # ====================================================
 
         completed = run_command(
-            ["--json"]
+            ["--format=json"]
+            if is_ookla_cli
+            else ["--json"]
         )
 
         stdout = (
@@ -820,7 +874,7 @@ def speedtest_internet():
         if data is not None:
 
             parsed = (
-                parse_speedtest_cli_json(
+                parse_speedtest_json(
                     data
                 )
             )
@@ -828,6 +882,29 @@ def speedtest_internet():
             if parsed is not None:
 
                 return parsed
+
+        if is_ookla_cli:
+
+            diagnostic = (
+                stderr.strip()
+                or stdout.strip()
+                or "speedtest returned no usable JSON result"
+            )
+
+            return {
+
+                "available": True,
+
+                "success": False,
+
+                "executable": executable,
+
+                "error": "Could not obtain a valid speedtest result.",
+
+                "raw_output": diagnostic[:1000],
+
+                "return_code": completed.returncode,
+            }
 
         # ====================================================
         # SECOND ATTEMPT: SIMPLE
@@ -1283,14 +1360,16 @@ def print_internet_results(
             ),
         )
 
-        table.add_row(
+        stddev = ping_result.get("stddev_ms")
 
-            "Ping Jitter",
+        if stddev is not None:
 
-            (
-                f'{ping_result["stddev_ms"]:.2f} ms'
-            ),
-        )
+            table.add_row(
+
+                "Ping Jitter",
+
+                f"{stddev:.2f} ms",
+            )
 
     else:
 
@@ -1635,15 +1714,17 @@ def main():
         .parent
     )
 
-    default_dns_file = (
-        script_dir
-        / "DNS.txt"
-    )
+    # The repository ships lowercase configuration files.  Prefer those on
+    # case-sensitive filesystems, but retain compatibility with older setups.
+    default_dns_file = script_dir / "dns.txt"
 
-    default_domains_file = (
-        script_dir
-        / "Domains.txt"
-    )
+    if not default_dns_file.exists():
+        default_dns_file = script_dir / "DNS.txt"
+
+    default_domains_file = script_dir / "domains.txt"
+
+    if not default_domains_file.exists():
+        default_domains_file = script_dir / "Domains.txt"
 
     if args.dns:
 

@@ -103,8 +103,8 @@ Configuration
 
 The default configuration uses two files located next to DNS-Tester.py:
 
-DNS.txt
-Domains.txt
+dns.txt
+domains.txt
 
 No DNS servers or domains are hard-coded into the application.
 
@@ -112,9 +112,9 @@ No DNS servers or domains are hard-coded into the application.
 
 DNS Configuration
 
-DNS.txt
+dns.txt
 
-The file supports provider names followed by one or more IPv4 addresses.
+The file supports provider names followed by one or more IPv4 or IPv6 addresses.
 
 Example:
 
@@ -149,7 +149,7 @@ Domain Configuration
 
 Create:
 
-Domains.txt
+domains.txt
 
 Put one domain per line:
 
@@ -172,7 +172,7 @@ ubisoft.com
 
 Usage
 
-With DNS.txt and Domains.txt in the same directory:
+With dns.txt and domains.txt in the same directory:
 
 python "DNS-Tester.py"
 
@@ -353,8 +353,8 @@ Individual DNS servers can also be supplied through the CLI.
 Example:
 
 python "DNS-Tester.py" \
-    --DNS "Cloudflare=1.1.1.1" \
-    --DNS "Google=8.8.8.8"
+    --dns "Cloudflare=1.1.1.1" \
+    --dns "Google=8.8.8.8"
 
 Individual domains can also be supplied:
 
@@ -368,7 +368,7 @@ JSON Output
 
 After every benchmark, the application saves the results to:
 
-DNS-results.json
+DNS-Results.json
 
 The JSON file contains:
 
@@ -405,8 +405,8 @@ Project Structure
 DNS-Tester/
 │
 ├── DNS-Tester.py
-├── DNS.txt
-├── Domains.txt
+├── dns.txt
+├── domains.txt
 ├── Requirements.txt
 ├── README.md
 ├── LICENSE
@@ -420,15 +420,9 @@ The .venv directory should not be committed to Git.
 
 Requirements File
 
-Create requirements.txt:
+Install the required dependencies with:
 
-dnspython
-rich
-speedtest-cli
-
-Install everything with:
-
-python -m pip install -r requirements.txt
+python -m pip install -r Requirements.txt
 
 ⸻
 
