@@ -12,6 +12,9 @@ public-ubiservices.ubi.com
 # PlayStation Network
 playstation.com
 playstation.net
+ps5.np.playstation.net
+sonyentertainmentnetwork.com
+store.playstation.com
 
 # Xbox Network
 xbox.com
@@ -22,6 +25,12 @@ user.auth.xboxlive.com
 xsts.auth.xboxlive.com
 title.auth.xboxlive.com
 device.auth.xboxlive.com
+
+# callofduty
+callofduty.com
+activision.com
+support.activision.com
+profile.callofduty.com
 
 Google.com
 
