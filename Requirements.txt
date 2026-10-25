@@ -1,2 +1,3 @@
 dnspython>=2.7,<3
 rich>=13.9,<16
+speedtest-cli or Ookla Speedtest CLI
