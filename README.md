@@ -68,6 +68,10 @@ python -m venv .venv
 
 python -m pip install dnspython rich speedtest-cli
 
+4. Run
+
+python DNS-Tester.py
+
 ⸻
 
 Speedtest Installation
