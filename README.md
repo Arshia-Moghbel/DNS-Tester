@@ -38,7 +38,7 @@ Requirements
 * rich
 * speedtest-cli or Ookla Speedtest CLI
 
-The project was developed and tested with Python 3.13.
+"The project was developed and tested with Python 3.13."
 
 ⸻
 
@@ -66,7 +66,7 @@ python -m venv .venv
 
 3. Install Python dependencies
 
-python -m pip install dnspython rich
+python -m pip install dnspython rich speedtest-cli
 
 ⸻
 
@@ -76,10 +76,6 @@ The application supports both:
 
 * speedtest-cli
 * Ookla speedtest
-
-speedtest-cli
-
-python -m pip install speedtest-cli
 
 Verify:
 
