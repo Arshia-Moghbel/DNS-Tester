@@ -64,7 +64,7 @@ Windows:
 python -m venv .venv
 .venv\Scripts\activate
 
-3. Install Python dependencies
+3. Install dependencies
 
 python -m pip install dnspython rich speedtest-cli
 
