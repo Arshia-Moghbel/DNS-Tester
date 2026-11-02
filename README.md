@@ -1,180 +1,220 @@
-DNS Tester
+# DNS Tester
 
-A Python-based DNS benchmarking and Internet connectivity testing tool with a clean CLI interface, concurrent DNS testing, domain resolution checks, latency analysis, Internet ping, speed testing, and JSON result export.
+A Python-based DNS benchmarking and Internet connectivity testing tool with a clean command-line interface. It evaluates DNS server performance, reliability, domain resolution, latency, and network connectivity, with support for concurrent testing and JSON result export.
 
-The DNS benchmark sends queries directly to the DNS servers specified by the user and does not modify or use the operating system’s DNS configuration.
+The DNS benchmark sends queries directly to the DNS servers specified by the user. It does not modify the operating system's DNS configuration or rely on its configured DNS resolvers for benchmark queries.
 
-⸻
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
 
-Features
+---
 
-* 🚀 Test multiple DNS servers concurrently
-* 📡 Direct DNS queries using dnspython
-* 🔒 Does not modify system DNS settings
-* 🚫 Does not use system DNS for DNS benchmarks
-* 🌐 Test user-defined domains
-* 🔁 Run multiple tests for every DNS/domain combination
-* 📊 Calculate:
-    * Success rate
-    * Average latency
-    * Minimum latency
-    * Maximum latency
-    * Jitter
-* ✅ Check whether user-defined domains resolve successfully
-* 🏆 Automatically rank DNS servers
-* 📶 Measure Internet connection latency
-* ⚡ Measure download and upload speed using speedtest-cli or Ookla Speedtest CLI
-* 💾 Export complete results to JSON
-* 🎨 Rich terminal tables
-* 🧩 Command-line arguments for customization
-* 📁 Load DNS servers and domains from external text files
+## Table of Contents
 
-⸻
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Speedtest Installation](#speedtest-installation)
+- [Configuration](#configuration)
+- [DNS Configuration](#dns-configuration)
+- [Domain Configuration](#domain-configuration)
+- [Usage](#usage)
+- [DNS Benchmarking](#dns-benchmarking)
+- [Domain Resolution](#domain-resolution)
+- [Internet Ping](#internet-ping)
+- [Internet Speed Test](#internet-speed-test)
+- [System DNS Isolation](#system-dns-isolation)
+- [Concurrency](#concurrency)
+- [Command-Line Options](#command-line-options)
+- [Direct DNS and Domain Arguments](#direct-dns-and-domain-arguments)
+- [JSON Output](#json-output)
+- [Project Structure](#project-structure)
+- [Security and Privacy](#security-and-privacy)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
+- [Author](#author)
 
-Requirements
+---
 
-* Python 3.10+
-* dnspython
-* rich
-* speedtest-cli or Ookla Speedtest CLI
+## Features
 
-"The project was developed and tested with Python 3.13."
+- 🚀 Test multiple DNS servers concurrently.
+- 📡 Send direct DNS queries using dnspython.
+- 🔒 Keep the operating system's DNS configuration unchanged.
+- 🚫 Avoid using system-configured DNS resolvers for DNS benchmark queries.
+- 🌐 Test user-defined domains.
+- 🔁 Perform multiple queries for every DNS server and domain combination.
+- 📊 Measure DNS performance:
+  - Query success rate
+  - Average latency
+  - Minimum latency
+  - Maximum latency
+  - Jitter
+- ✅ Evaluate domain resolution reliability.
+- 🏆 Automatically rank DNS servers based on benchmark results.
+- 📶 Measure Internet connectivity latency using ICMP ping.
+- ⚡ Measure download and upload speeds using Speedtest CLI.
+- 💾 Export benchmark results to JSON.
+- 🎨 Display formatted terminal tables using Rich.
+- 🧩 Support command-line arguments for customization.
+- 📁 Load DNS servers and domains from external text files.
+- 🌍 Support IPv4 and IPv6 DNS server addresses.
 
-⸻
+## Requirements
 
-Installation
+- Python 3.10 or newer
+- dnspython
+- rich
+- speedtest-cli or Ookla Speedtest CLI (optional)
 
-1. Clone the repository
+The project was developed and tested with Python 3.13.
 
+## Installation
+
+### 1. Clone the repository
+
+```bash
 git clone https://github.com/Arshia-Moghbel/DNS-Tester.git
-cd Dns-Tester
+cd DNS-Tester
+```
 
-2. Create a virtual environment
+### 2. Create a virtual environment
 
-macOS / Linux:
+**macOS / Linux**
 
+```bash
 python3 -m venv .venv
-
-Activate it:
-
 source .venv/bin/activate
+```
 
-Windows:
+**Windows**
 
+```powershell
 python -m venv .venv
 .venv\Scripts\activate
+```
 
-3. Install dependencies
+### 3. Install dependencies
 
-python -m pip install dnspython rich speedtest-cli
+```bash
+python -m pip install -r requirements.txt
+```
 
-4. Run
+### 4. Run the application
 
+```bash
 python DNS-Tester.py
+```
 
-⸻
+## Speedtest Installation
 
-Speedtest Installation
+DNS Tester supports two Speedtest command-line clients:
 
-The application supports both:
+- `speedtest` — Ookla Speedtest CLI
+- `speedtest-cli` — Python-based Speedtest CLI
 
-* speedtest-cli
-* Ookla speedtest
+The application checks for Ookla's `speedtest` command first, followed by `speedtest-cli`.
 
-Verify:
+Verify installation:
 
+```bash
+speedtest --version
+```
+
+Or:
+
+```bash
 speedtest-cli --version
+```
 
-Ookla Speedtest CLI
+Speedtest is optional. DNS benchmarking and Internet ping testing can be used independently of the speed test.
 
-If Ookla’s Speedtest CLI is installed and available in PATH, the application can use it automatically.
+## Configuration
 
-The application checks for:
+The default configuration uses two external text files located next to `DNS-Tester.py`:
 
-speedtest
-
-first and then:
-
-speedtest-cli
-
-⸻
-
-Configuration
-
-The default configuration uses two files located next to DNS-Tester.py:
-
+```text
 dns.txt
 domains.txt
+```
 
-No DNS servers or domains are hard-coded into the application.
+No DNS servers or domains need to be hard-coded into the application.
 
-⸻
+### DNS Configuration
 
-DNS Configuration
-
-dns.txt
+Create a file named `dns.txt`.
 
 The file supports provider names followed by one or more IPv4 or IPv6 addresses.
 
 Example:
 
+```text
 Cloudflare
 1.1.1.1
 1.0.0.1
-
 
 Google
 8.8.8.8
 8.8.4.4
 
-The application interprets this as:
+Quad9
+9.9.9.9
+149.112.112.112
+```
 
-Cloudflare → 1.1.1.1
-Cloudflare → 1.0.0.1
-Google → 8.8.8.8
-Google → 8.8.4.4
-Quad9 → 9.9.9.9
-Quad9 → 149.112.112.112
+The application interprets the entries as:
 
-Comments are supported:
+| Provider | DNS Server |
+|---|---|
+| Cloudflare | 1.1.1.1 |
+| Cloudflare | 1.0.0.1 |
+| Google | 8.8.8.8 |
+| Google | 8.8.4.4 |
+| Quad9 | 9.9.9.9 |
+| Quad9 | 149.112.112.112 |
 
-⸻
+Comments can be included in the configuration file if supported by the parser.
 
-Domain Configuration
+### Domain Configuration
 
-Create:
+Create a file named `domains.txt`.
 
-domains.txt
+Add one domain per line:
 
-Put one domain per line:
-
+```text
 apple.com
 icloud.com
 google.com
 github.com
 youtube.com
+```
 
-You can use any domains you want.
+You can use any valid domains you want.
 
-For example, you could test:
+For example:
 
+```text
 epicgames.com
 playstation.com
 xbox.com
 ubisoft.com
+```
 
-⸻
+The application uses these domains to evaluate DNS resolution performance and reliability.
 
-Usage
+## Usage
 
-With dns.txt and domains.txt in the same directory:
+With `dns.txt` and `domains.txt` in the same directory as the application:
 
-python "DNS-Tester.py"
+```bash
+python DNS-Tester.py
+```
 
-The program will automatically load both files.
+Example startup information:
 
-Example startup:
-
+```text
 DNS Tester
 ============================================================
 DNS servers : 28
@@ -183,201 +223,248 @@ Tests/domain: 5
 Timeout     : 2.00s
 Concurrency : 8
 System DNS  : NOT changed / NOT used
+```
 
-⸻
+The displayed values depend on the configuration files and command-line arguments.
 
-DNS Testing
+## DNS Benchmarking
 
-For every DNS server, the application performs multiple DNS queries for every configured Domain.
+For each DNS server, the application performs multiple DNS queries for every configured domain.
 
 For example:
 
+```text
 5 tests × 10 domains = 50 queries per DNS server
+```
 
-The results include:
+The benchmark evaluates:
 
-Metric    Description
-Success    Percentage of successful queries
-Avg    Average query latency
-Min    Fastest successful query
-Max    Slowest query
-Jitter    Average change between consecutive latency samples
-Domains OK    Domains with 100% successful resolution
+| Metric | Description |
+|---|---|
+| Success | Percentage of successful DNS queries |
+| Avg | Average latency of successful queries |
+| Min | Minimum successful query latency |
+| Max | Maximum successful query latency |
+| Jitter | Average absolute difference between consecutive successful latency measurements |
+| Domains OK | Number of domains successfully resolved in all test attempts |
 
-⸻
+Only successful query measurements should contribute to latency statistics.
 
-Domain Resolution
+## Domain Resolution
 
-The application provides a separate domain-resolution table.
+DNS Tester provides domain-level resolution results to help compare DNS servers.
 
 Example:
 
-DNS          apple.com       github.com      youtube.com
-Cloudflare   ✓ 100% / 40ms   ✓ 100% / 45ms   ✓ 80% / 70ms
-Google       ✓ 100% / 42ms   ✓ 100% / 48ms   ✓ 100% / 55ms
+| DNS Server | apple.com | github.com | youtube.com |
+|---|---|---|---|
+| Cloudflare | ✓ 100% / 40ms | ✓ 100% / 45ms | ✓ 80% / 70ms |
+| Google | ✓ 100% / 42ms | ✓ 100% / 48ms | ✓ 100% / 55ms |
 
-This allows you to compare not only DNS latency but also whether specific domains can actually be resolved successfully through each DNS server.
+These are illustrative values, not actual benchmark results.
 
-⸻
+Domain resolution statistics help identify DNS servers that may have inconsistent resolution performance for particular domains.
 
-Internet Ping
+## Internet Ping
 
 The application separately tests Internet connectivity by sending ICMP requests to:
 
+```text
 1.1.1.1
+```
 
-This test is not a DNS benchmark.
+This test is independent of DNS benchmarking.
 
-It reports:
+Reported metrics can include:
 
-* Average latency
-* Minimum latency
-* Maximum latency
-* Ping standard deviation
+- Average latency
+- Minimum latency
+- Maximum latency
+- Ping standard deviation
 
-⸻
+Internet ping measures network round-trip time to the target IP address. It does not measure DNS resolution speed.
 
-Internet Speed Test
+## Internet Speed Test
 
-The application can also run an Internet speed test independently from the DNS benchmark.
+DNS Tester can independently measure Internet connection performance.
 
 Supported clients:
 
+```text
 speedtest
 speedtest-cli
+```
 
-The result can include:
+Results can include:
 
-* Download speed
-* Upload speed
-* Speedtest latency
-* Test server
-* Server location
-* ISP
+- Download speed
+- Upload speed
+- Speedtest latency
+- Test server
+- Server location
+- ISP
 
-Important: the Internet speed test measures the current Internet connection and is not a measurement of DNS performance.
+**Important:** Internet speed testing measures the current network connection. It does not measure DNS server performance.
 
-⸻
+## System DNS Isolation
 
-System DNS Isolation
+One of the main design goals of DNS Tester is to benchmark DNS servers directly.
 
-One of the main design goals of this project is to test DNS servers directly.
+The DNS benchmarking engine uses:
 
-The application uses:
-
+```python
 dns.asyncresolver.Resolver(configure=False)
+```
 
-and explicitly assigns the tested server:
+and explicitly assigns the DNS server being tested:
 
+```python
 resolver.nameservers = [server]
+```
 
-Therefore, the DNS benchmark does not read the operating system’s configured DNS servers.
+This allows DNS queries to be directed to the specified DNS server without relying on the operating system's configured DNS resolvers for benchmark queries.
 
-The application also does not change the system DNS configuration.
+The application does not modify the system DNS configuration.
 
-⸻
+This isolation applies specifically to DNS benchmarking. Other components, such as Internet speed testing, may use the system's normal network configuration.
 
-Concurrency
+## Concurrency
 
-DNS servers are tested concurrently using Python’s asyncio.
+DNS servers are tested concurrently using Python's `asyncio`.
 
 Example:
 
-python "DNS-Tester.py" --concurrency 16
+```bash
+python DNS-Tester.py --concurrency 16
+```
 
 Default:
 
+```text
 Concurrency: 8
+```
 
-Increasing concurrency can reduce total benchmark time, but very high values may increase network load.
+Increasing concurrency can reduce total benchmark execution time, but excessively high values may increase network load and affect measurement consistency.
 
-⸻
-
-Command-Line Options
+## Command-Line Options
 
 Display help:
 
-python "DNS-Tester.py" --help
+```bash
+python DNS-Tester.py --help
+```
 
-Number of tests
+### Number of Tests
 
-python "DNS-Tester.py" --tests 10
+```bash
+python DNS-Tester.py --tests 10
+```
 
 Default:
 
+```text
 5
+```
 
-DNS timeout
+### DNS Timeout
 
-python "DNS-Tester.py" --timeout 3
+```bash
+python DNS-Tester.py --timeout 3
+```
 
 Default:
 
+```text
 2 seconds
+```
 
-Concurrency
+### Concurrency
 
-python "DNS-Tester.py" --concurrency 16
+```bash
+python DNS-Tester.py --concurrency 16
+```
 
 Default:
 
+```text
 8
+```
 
-Custom DNS file
+### Custom DNS File
 
-python "DNS-Tester.py" --dns-file my-dns.txt
+```bash
+python DNS-Tester.py --dns-file my-dns.txt
+```
 
-Custom domain file
+### Custom Domain File
 
-python "DNS-Tester.py" --domain-file my-domains.txt
+```bash
+python DNS-Tester.py --domain-file my-domains.txt
+```
 
-Skip speed test
+### Skip Speed Test
 
-python "DNS-Tester.py" --no-speedtest
+```bash
+python DNS-Tester.py --no-speedtest
+```
 
-Custom JSON output
+### Custom JSON Output
 
-python "DNS-Tester.py" --output results.json
+```bash
+python DNS-Tester.py --output results.json
+```
 
-⸻
+## Direct DNS and Domain Arguments
 
-Direct DNS Arguments
-
-Individual DNS servers can also be supplied through the CLI.
+Individual DNS servers can also be supplied through command-line arguments.
 
 Example:
 
-python "DNS-Tester.py" \
+```bash
+python DNS-Tester.py \
     --dns "Cloudflare=1.1.1.1" \
     --dns "Google=8.8.8.8"
+```
 
 Individual domains can also be supplied:
 
-python "DNS-Tester.py" \
+```bash
+python DNS-Tester.py \
     --domain apple.com \
     --domain github.com
+```
 
-⸻
+These options allow custom benchmarks without editing the default configuration files.
 
-JSON Output
+## JSON Output
 
-After every benchmark, the application saves the results to:
+After a benchmark, results are exported to:
 
+```text
 DNS-Results.json
+```
 
-The JSON file contains:
+A custom output path can be specified using:
 
-* Timestamp
-* Benchmark duration
-* Test configuration
-* DNS server list
-* Domain list
-* DNS benchmark results
-* Internet ping results
-* Internet speed-test results
+```bash
+python DNS-Tester.py --output results.json
+```
 
-Example structure:
+The JSON report is intended to contain:
 
+- Timestamp
+- Benchmark duration
+- Test configuration
+- DNS server list
+- Domain list
+- DNS benchmark results
+- Internet ping results
+- Internet speed-test results
+- System DNS usage and configuration status
+
+Example JSON structure:
+
+```json
 {
   "timestamp_utc": "...",
   "duration_seconds": 12.34,
@@ -392,91 +479,108 @@ Example structure:
   "internet_ping": {},
   "internet_speedtest": {}
 }
+```
 
-⸻
+The example is illustrative. Actual fields and values depend on the application version and enabled tests.
 
-Project Structure
+## Project Structure
 
+```text
 DNS-Tester/
 │
 ├── DNS-Tester.py
 ├── dns.txt
 ├── domains.txt
-├── Requirements.txt
+├── requirements.txt
 ├── README.md
 ├── LICENSE
 ├── .gitignore
 │
-└── .venv/
+└── .venv/                 # Local virtual environment (not committed)
+```
 
-The .venv directory should not be committed to Git.
+The `.venv` directory should not be committed to Git.
 
-⸻
+## Security and Privacy
 
-Requirements File
+DNS Tester is designed to perform local network diagnostics without modifying the operating system's DNS configuration.
 
-Install the required dependencies with:
+The application:
 
-python -m pip install -r Requirements.txt
+- Does not change system DNS settings.
+- Does not require administrator or root privileges for ordinary DNS benchmarking.
+- Does not require user passwords.
+- Does not intentionally collect personal information.
+- Saves benchmark results locally as JSON.
+- Sends DNS queries to the DNS servers specified by the user.
+- Sends network test traffic to the configured test destinations and selected Speedtest servers.
 
-⸻
+**Privacy note:** DNS queries reveal the domains being tested to the selected DNS resolvers. Speedtest providers may also process network information as part of their service.
 
-Important Notes
+## Troubleshooting
 
-DNS latency is not Internet latency
+### Missing Python Dependencies
 
-A DNS server with a low DNS-query latency does not necessarily provide the fastest Internet connection.
+Install the required dependencies:
 
-DNS testing measures the time required to resolve DNS records.
+```bash
+python -m pip install -r requirements.txt
+```
 
-Internet speed is measured separately.
+### DNS Timeout
 
-DNS caching can affect results
+Possible causes include:
 
-Repeated queries may be affected by DNS caching at different layers.
+- DNS server unavailable.
+- Network restrictions.
+- Firewall rules.
+- Incorrect DNS server address.
+- High network latency.
 
-For more representative results, use multiple domains and multiple repetitions.
+Try increasing the timeout:
 
-Network conditions matter
+```bash
+python DNS-Tester.py --timeout 5
+```
 
-Results can change depending on:
+### Speedtest Command Not Found
 
-* ISP
-* Network congestion
-* Routing
-* Packet loss
-* Geographic location
-* DNS server load
-* Domain/CDN configuration
+Verify that one of the supported Speedtest clients is installed and available in your system's `PATH`.
 
-Therefore, a DNS benchmark should be interpreted as a measurement of performance from the current network location at the time of testing.
+### Invalid DNS or Domain Entries
 
-⸻
+Check the contents of `dns.txt` and `domains.txt`. Make sure the entries are valid and correctly formatted.
 
-Security & Privacy
+### High Latency or Inconsistent Results
 
-This application:
+Network congestion, routing, DNS caching, packet loss, and server load can affect benchmark results.
 
-* Does not change system DNS settings
-* Does not require administrator/root privileges for DNS benchmarking
-* Does not store passwords
-* Does not collect personal information
-* Saves benchmark results locally as JSON
+Consider running multiple tests under consistent network conditions.
 
-The configured domains and DNS servers are used only for testing.
+## Contributing
 
-⸻
+Contributions, bug reports, and suggestions are welcome.
 
-License
+To contribute:
 
-This project is available under the MIT License.
+1. Fork the repository.
+2. Create a feature branch.
+3. Make your changes.
+4. Test your implementation.
+5. Submit a Pull Request.
 
-See LICENSE for details.
+For significant changes, open an issue first to discuss the proposed implementation.
 
-⸻
+## License
 
-Author
+This project is licensed under the MIT License.
 
-Arshia Moghbel
+See the [LICENSE](LICENSE) file for details.
 
-Built with Python, asyncio, dnspython and Rich.
+## Author
+
+**Arshia Moghbel**
+
+GitHub: [@Arshia-Moghbel](https://github.com/Arshia-Moghbel)
+
+Built with Python, asyncio, dnspython, and Rich.
