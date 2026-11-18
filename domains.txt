@@ -35,3 +35,9 @@ profile.callofduty.com
 Google.com
 
 apple.com
+
+icloud.com
+
+github.com
+
+youtube.com
